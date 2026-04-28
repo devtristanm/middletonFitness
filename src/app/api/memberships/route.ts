@@ -45,13 +45,18 @@ export async function POST(request: Request) {
       createdAt: record.createdAt,
     });
   } catch (err) {
-    console.error("addMembership failed:", err);
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("addMembership failed:", message, err);
+    const isConfig =
+      message.includes("Missing Supabase env") ||
+      message.includes("NEXT_PUBLIC_SUPABASE");
     return NextResponse.json(
       {
-        error:
-          "Could not save your application. Try again in a moment, or ask staff for help.",
+        error: isConfig
+          ? "Server configuration error: Supabase environment variables are missing or invalid."
+          : "Could not save your application. Try again in a moment, or ask staff for help.",
       },
-      { status: 503 }
+      { status: isConfig ? 500 : 503 }
     );
   }
 }

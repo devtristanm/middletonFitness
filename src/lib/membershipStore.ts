@@ -27,8 +27,8 @@ export async function readStore(): Promise<MembershipsFile> {
     .maybeSingle();
 
   if (error) {
-    console.error("membership_store read:", error.message);
-    return defaultFile();
+    console.error("membership_store read:", error.code, error.message, error.details);
+    throw error;
   }
   if (!row?.data) return defaultFile();
   return normalizeStore(row.data);

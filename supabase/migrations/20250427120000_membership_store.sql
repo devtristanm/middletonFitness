@@ -17,3 +17,10 @@ alter table public.membership_store disable row level security;
 insert into public.membership_store (id, data)
 values (1, '{"nextId":1280,"memberships":[]}'::jsonb)
 on conflict (id) do nothing;
+
+-- Required for PostgREST (publishable / anon JWT); without this, writes fail with permission denied.
+grant usage on schema public to anon, authenticated, service_role;
+
+grant select, insert, update, delete on table public.membership_store to anon;
+grant select, insert, update, delete on table public.membership_store to authenticated;
+grant select, insert, update, delete on table public.membership_store to service_role;
