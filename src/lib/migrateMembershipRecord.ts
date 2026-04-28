@@ -120,6 +120,22 @@ export function migrateMembershipRecord(row: MembershipRecord): MembershipRecord
   const agreementInitials = migrateAgreements(row.agreementInitials);
   const created = row.createdAt?.slice(0, 10) ?? "";
 
+  const r = row as MembershipRecord & {
+    cancelledAt?: unknown;
+    lastSheetEditAt?: unknown;
+    ownerNotes?: unknown;
+  };
+  const cancelledAt =
+    typeof r.cancelledAt === "string" && r.cancelledAt.trim()
+      ? r.cancelledAt.trim()
+      : null;
+  const lastSheetEditAt =
+    typeof r.lastSheetEditAt === "string" && r.lastSheetEditAt.trim()
+      ? r.lastSheetEditAt.trim()
+      : null;
+  const ownerNotes =
+    typeof r.ownerNotes === "string" ? r.ownerNotes.slice(0, 5000) : "";
+
   return {
     ...row,
     primary,
@@ -129,5 +145,8 @@ export function migrateMembershipRecord(row: MembershipRecord): MembershipRecord
     printedName: (row.printedName ?? primary.fullName).trim(),
     agreementDate: (row.agreementDate ?? created).trim(),
     children: Array.isArray(row.children) ? row.children : [],
+    cancelledAt,
+    lastSheetEditAt,
+    ownerNotes,
   };
 }

@@ -6,6 +6,8 @@ import {
   useImperativeHandle,
   useRef,
   forwardRef,
+  useState,
+  useLayoutEffect,
 } from "react";
 
 export type SignaturePadHandle = {
@@ -43,15 +45,36 @@ function getPoint(
 export const SignaturePad = forwardRef<SignaturePadHandle, Props>(
   function SignaturePad({ className = "", label, hint }, ref) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
+    const wrapRef = useRef<HTMLDivElement>(null);
     const drawing = useRef(false);
     const hasInk = useRef(false);
+    const [size, setSize] = useState({ w: 320, h: 192 });
+
+    useLayoutEffect(() => {
+      const el = wrapRef.current;
+      if (!el) return;
+
+      const measure = () => {
+        const cw = Math.floor(el.clientWidth);
+        if (cw < 40) return;
+        const w = cw;
+        const h = Math.max(176, Math.min(280, Math.round(w * 0.33)));
+        setSize((prev) =>
+          prev.w === w && prev.h === h ? prev : { w, h }
+        );
+      };
+
+      measure();
+      const ro = new ResizeObserver(measure);
+      ro.observe(el);
+      return () => ro.disconnect();
+    }, []);
 
     const resize = useCallback(() => {
       const canvas = canvasRef.current;
       if (!canvas) return;
+      const { w, h } = size;
       const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
-      const w = 560;
-      const h = 180;
       canvas.width = w * dpr;
       canvas.height = h * dpr;
       canvas.style.width = `${w}px`;
@@ -62,11 +85,14 @@ export const SignaturePad = forwardRef<SignaturePadHandle, Props>(
       ctx.fillStyle = "#ffffff";
       ctx.fillRect(0, 0, w, h);
       ctx.strokeStyle = "#0f1419";
-      ctx.lineWidth = 2;
+      const coarse =
+        typeof window !== "undefined" &&
+        window.matchMedia("(pointer: coarse)").matches;
+      ctx.lineWidth = coarse ? 3.25 : 2;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       hasInk.current = false;
-    }, []);
+    }, [size]);
 
     useEffect(() => {
       resize();
@@ -117,28 +143,33 @@ export const SignaturePad = forwardRef<SignaturePadHandle, Props>(
           <p className="mb-2 text-sm font-medium text-ink">{label}</p>
         ) : null}
         <div className="rounded-xl border border-surface-border bg-white p-3 shadow-sm">
-          <canvas
-            ref={canvasRef}
-            className="touch-none cursor-crosshair rounded-lg border border-dashed border-surface-border bg-white"
-            onMouseDown={start}
-            onMouseMove={move}
-            onMouseUp={end}
-            onMouseLeave={end}
-            onTouchStart={(e) => {
-              e.preventDefault();
-              start(e);
-            }}
-            onTouchMove={(e) => {
-              e.preventDefault();
-              move(e);
-            }}
-            onTouchEnd={end}
-          />
-          <div className="mt-2 flex justify-end">
+          <div
+            ref={wrapRef}
+            className="w-full min-h-[11rem] overscroll-contain sm:min-h-[12rem]"
+          >
+            <canvas
+              ref={canvasRef}
+              className="touch-none block cursor-crosshair rounded-lg border border-dashed border-surface-border bg-white"
+              onMouseDown={start}
+              onMouseMove={move}
+              onMouseUp={end}
+              onMouseLeave={end}
+              onTouchStart={(e) => {
+                e.preventDefault();
+                start(e);
+              }}
+              onTouchMove={(e) => {
+                e.preventDefault();
+                move(e);
+              }}
+              onTouchEnd={end}
+            />
+          </div>
+          <div className="mt-3 flex justify-end">
             <button
               type="button"
               onClick={() => resize()}
-              className="text-sm font-medium text-accent hover:text-accent-hover"
+              className="min-h-[44px] min-w-[44px] px-3 text-sm font-medium text-accent hover:text-accent-hover sm:min-h-0 sm:min-w-0"
             >
               Clear signature
             </button>

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getMembership, updateMembership } from "@/lib/membershipStore";
+import type { MembershipRecord } from "@/lib/types";
 import { parseUpdateMembershipBody } from "@/lib/validateMembership";
 import { isWorkerAuthenticated } from "@/lib/workerSession";
 
@@ -38,14 +39,38 @@ export async function PATCH(request: Request, context: Ctx) {
 
   const body = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const keys = Object.keys(body);
+
+  const ownerNotesOnly =
+    keys.length === 1 &&
+    "ownerNotes" in body &&
+    typeof body.ownerNotes === "string";
+
+  if (ownerNotesOnly) {
+    const ownerNotes = String(body.ownerNotes).slice(0, 5000);
+    const updated = await updateMembership(membershipId, { ownerNotes });
+    if (!updated) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    return NextResponse.json({ membership: updated });
+  }
+
   const statusOnly =
     keys.length === 1 &&
     (body.status === "cancelled" || body.status === "active");
 
   if (statusOnly) {
-    const updated = await updateMembership(membershipId, {
-      status: body.status as "active" | "cancelled",
-    });
+    const existing = await getMembership(membershipId);
+    if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    const now = new Date().toISOString();
+    const nextStatus = body.status as "active" | "cancelled";
+    const patch: Partial<Omit<MembershipRecord, "membershipId" | "createdAt">> = {
+      status: nextStatus,
+    };
+    if (nextStatus === "cancelled" && existing.status === "active") {
+      patch.cancelledAt = now;
+    }
+    if (nextStatus === "active") {
+      patch.cancelledAt = null;
+    }
+    const updated = await updateMembership(membershipId, patch);
     if (!updated) return NextResponse.json({ error: "Not found" }, { status: 404 });
     return NextResponse.json({ membership: updated });
   }
@@ -63,6 +88,7 @@ export async function PATCH(request: Request, context: Ctx) {
   const signatureDataUrl =
     data.signatureDataUrl ?? existing.signatureDataUrl;
 
+  const now = new Date().toISOString();
   const updated = await updateMembership(membershipId, {
     type: data.type,
     primary: data.primary,
@@ -75,6 +101,9 @@ export async function PATCH(request: Request, context: Ctx) {
     agreementDate: data.agreementDate,
     notes: data.notes ?? existing.notes,
     status: existing.status,
+    cancelledAt: existing.cancelledAt,
+    ownerNotes: existing.ownerNotes,
+    lastSheetEditAt: now,
   });
 
   return NextResponse.json({ membership: updated });

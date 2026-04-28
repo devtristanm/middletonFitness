@@ -55,6 +55,12 @@ export type MembershipRecord = {
   /** Date next to signature (YYYY-MM-DD). */
   agreementDate: string;
   notes: string;
+  /** When status became cancelled (ISO). Cleared on reactivate. */
+  cancelledAt: string | null;
+  /** Last time staff saved the membership form (edit sheet), ISO. */
+  lastSheetEditAt: string | null;
+  /** Staff / owner-only notes (not on public signup). */
+  ownerNotes: string;
 };
 
 export type MembershipsFile = {

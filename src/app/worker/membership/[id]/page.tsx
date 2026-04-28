@@ -22,6 +22,8 @@ export default function WorkerMembershipDetailPage() {
   const [m, setM] = useState<MembershipRecord | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [ownerNotesDraft, setOwnerNotesDraft] = useState("");
+  const [ownerNotesSaving, setOwnerNotesSaving] = useState(false);
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/memberships/${id}`, { credentials: "include" });
@@ -31,7 +33,9 @@ export default function WorkerMembershipDetailPage() {
       setM(null);
       return;
     }
-    setM(data.membership as MembershipRecord);
+    const rec = data.membership as MembershipRecord;
+    setM(rec);
+    setOwnerNotesDraft(rec.ownerNotes ?? "");
     setError(null);
   }, [id]);
 
@@ -43,6 +47,28 @@ export default function WorkerMembershipDetailPage() {
     }
     load();
   }, [id, load]);
+
+  async function saveOwnerNotes() {
+    if (!m) return;
+    setOwnerNotesSaving(true);
+    try {
+      const res = await fetch(`/api/memberships/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ ownerNotes: ownerNotesDraft }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not save notes");
+      const rec = data.membership as MembershipRecord;
+      setM(rec);
+      setOwnerNotesDraft(rec.ownerNotes ?? "");
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Error");
+    } finally {
+      setOwnerNotesSaving(false);
+    }
+  }
 
   async function setStatus(status: "active" | "cancelled") {
     if (!m) return;
@@ -63,7 +89,9 @@ export default function WorkerMembershipDetailPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Update failed");
-      setM(data.membership as MembershipRecord);
+      const rec = data.membership as MembershipRecord;
+      setM(rec);
+      setOwnerNotesDraft(rec.ownerNotes ?? "");
     } catch (e) {
       alert(e instanceof Error ? e.message : "Error");
     } finally {
@@ -173,7 +201,56 @@ export default function WorkerMembershipDetailPage() {
             Submitted {new Date(m.createdAt).toLocaleString()} · Updated{" "}
             {new Date(m.updatedAt).toLocaleString()}
           </p>
+          <dl className="mt-4 grid gap-2 border-t border-surface-border pt-4 text-xs sm:grid-cols-2">
+            <div>
+              <dt className="text-ink-muted">Cancelled at</dt>
+              <dd className="font-medium text-ink">
+                {m.status === "cancelled"
+                  ? new Date(m.cancelledAt ?? m.updatedAt).toLocaleString()
+                  : "—"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-ink-muted">Last sheet edit</dt>
+              <dd className="font-medium text-ink">
+                {m.lastSheetEditAt
+                  ? new Date(m.lastSheetEditAt).toLocaleString()
+                  : "—"}
+              </dd>
+            </div>
+          </dl>
         </div>
+
+        <section className="rounded-2xl border border-zinc-800 bg-white p-6 shadow-xl shadow-black/20">
+          <h2 className="font-display text-lg font-semibold text-ink">
+            Owner / staff notes
+          </h2>
+          <p className="mt-1 text-xs text-ink-muted">
+            Internal only — not shown on the public signup form. Use for follow-ups,
+            billing notes, or front-desk reminders.
+          </p>
+          <textarea
+            value={ownerNotesDraft}
+            onChange={(e) => setOwnerNotesDraft(e.target.value)}
+            rows={5}
+            maxLength={5000}
+            className="mt-3 w-full rounded-lg border border-surface-border bg-white px-3 py-2 text-sm text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
+            placeholder="Add notes for your team…"
+          />
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+            <span className="text-xs text-ink-muted">
+              {ownerNotesDraft.length} / 5000
+            </span>
+            <button
+              type="button"
+              disabled={ownerNotesSaving}
+              onClick={() => void saveOwnerNotes()}
+              className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-hover disabled:opacity-50"
+            >
+              {ownerNotesSaving ? "Saving…" : "Save notes"}
+            </button>
+          </div>
+        </section>
 
         <section className="rounded-2xl border border-zinc-800 bg-white p-6 shadow-xl shadow-black/20">
           <h2 className="font-display text-lg font-semibold text-ink">

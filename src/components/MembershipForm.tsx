@@ -458,12 +458,6 @@ export function MembershipForm({
           Card number, cardholder name, expiration (MM/YY), CVV, and billing ZIP
           for the card.
         </p>
-        <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
-          Card data is stored in the gym&apos;s local database file for operations
-          only. For production, use a PCI-compliant processor (e.g. Stripe) and
-          never store raw card numbers on your own server unless you are certified
-          to do so.
-        </p>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <div className="sm:col-span-2">
             <Field

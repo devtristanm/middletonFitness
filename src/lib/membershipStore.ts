@@ -56,7 +56,15 @@ export async function getMembership(
 }
 
 export async function addMembership(
-  record: Omit<MembershipRecord, "membershipId" | "createdAt" | "updatedAt">
+  record: Omit<
+    MembershipRecord,
+    | "membershipId"
+    | "createdAt"
+    | "updatedAt"
+    | "cancelledAt"
+    | "lastSheetEditAt"
+    | "ownerNotes"
+  >
 ): Promise<MembershipRecord> {
   const store = await readStore();
   const membershipId = store.nextId;
@@ -66,6 +74,9 @@ export async function addMembership(
     membershipId,
     createdAt: now,
     updatedAt: now,
+    cancelledAt: null,
+    lastSheetEditAt: null,
+    ownerNotes: "",
   };
   store.memberships.push(full);
   store.nextId = membershipId + 1;
@@ -81,11 +92,12 @@ export async function updateMembership(
   const idx = store.memberships.findIndex((m) => m.membershipId === membershipId);
   if (idx === -1) return null;
   const prev = store.memberships[idx];
+  const base = migrateMembershipRecord(prev as MembershipRecord);
   const updated: MembershipRecord = {
-    ...prev,
+    ...base,
     ...patch,
-    membershipId: prev.membershipId,
-    createdAt: prev.createdAt,
+    membershipId: base.membershipId,
+    createdAt: base.createdAt,
     updatedAt: new Date().toISOString(),
   };
   store.memberships[idx] = updated;
