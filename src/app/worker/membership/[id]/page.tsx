@@ -275,7 +275,17 @@ export default function WorkerMembershipDetailPage() {
             </div>
             <div className="sm:col-span-2">
               <dt className="text-ink-muted">Address</dt>
-              <dd className="whitespace-pre-wrap text-ink">{m.primary.address}</dd>
+              <dd className="whitespace-pre-wrap text-ink">
+                {m.primary.addressLine1}
+                {m.primary.addressLine2 ? (
+                  <>
+                    <br />
+                    {m.primary.addressLine2}
+                  </>
+                ) : null}
+                <br />
+                {m.primary.city}, {m.primary.state} {m.primary.zip}
+              </dd>
             </div>
           </dl>
         </section>

@@ -9,20 +9,38 @@ import type {
   PersonInfo,
   SpouseInfo,
 } from "@/lib/types";
+import { US_STATES } from "@/lib/usStates";
 import { SignaturePad, type SignaturePadHandle } from "./SignaturePad";
 
 const emptyPrimary: PersonInfo = {
   fullName: "",
   dateOfBirth: "",
-  address: "",
+  addressLine1: "",
+  addressLine2: "",
+  city: "",
+  state: "",
+  zip: "",
   email: "",
   phone: "",
 };
 
-const emptySpouse: SpouseInfo = {
-  fullName: "",
-  age: 18,
-};
+type SpouseDraft = { fullName: string; ageStr: string };
+type ChildDraft = { fullName: string; ageStr: string };
+
+function spouseDraftFromInitial(s?: SpouseInfo | null): SpouseDraft {
+  if (!s) return { fullName: "", ageStr: "" };
+  return {
+    fullName: s.fullName,
+    ageStr: Number.isFinite(s.age) ? String(s.age) : "",
+  };
+}
+
+function childrenDraftFromInitial(rows: ChildInfo[]): ChildDraft[] {
+  return rows.map((c) => ({
+    fullName: c.fullName,
+    ageStr: Number.isFinite(c.age) ? String(c.age) : "",
+  }));
+}
 
 const emptyPayment: PaymentInfo = {
   cardNumber: "",
@@ -132,11 +150,11 @@ export function MembershipForm({
   const [primary, setPrimary] = useState<PersonInfo>(
     initial?.primary ?? { ...emptyPrimary }
   );
-  const [spouse, setSpouse] = useState<SpouseInfo>(
-    initial?.spouse ?? { ...emptySpouse }
+  const [spouseDraft, setSpouseDraft] = useState<SpouseDraft>(() =>
+    spouseDraftFromInitial(initial?.spouse ?? null)
   );
-  const [children, setChildren] = useState<ChildInfo[]>(
-    initial?.children?.length ? initial!.children! : []
+  const [childrenDraft, setChildrenDraft] = useState<ChildDraft[]>(() =>
+    initial?.children?.length ? childrenDraftFromInitial(initial.children!) : []
   );
   const [payment, setPayment] = useState<PaymentInfo>(
     initial?.payment ?? { ...emptyPayment }
@@ -180,14 +198,67 @@ export function MembershipForm({
       setError("Agreement date is required.");
       return;
     }
+
+    let spouseOut: SpouseInfo | null = null;
+    if (type === "family") {
+      const sn = spouseDraft.fullName.trim();
+      const sa = spouseDraft.ageStr.trim();
+      if (!sn) {
+        setError("Spouse full name is required.");
+        return;
+      }
+      if (!sa) {
+        setError("Spouse age is required.");
+        return;
+      }
+      const spouseAgeNum = Number(sa);
+      if (!Number.isInteger(spouseAgeNum)) {
+        setError("Spouse age must be a whole number.");
+        return;
+      }
+      if (spouseAgeNum < 18 || spouseAgeNum > 120) {
+        setError("Spouse age must be between 18 and 120.");
+        return;
+      }
+      spouseOut = { fullName: sn, age: spouseAgeNum };
+    }
+
+    const childrenOut: ChildInfo[] = [];
+    if (type === "family") {
+      for (let i = 0; i < childrenDraft.length; i++) {
+        const row = childrenDraft[i];
+        const name = row.fullName.trim();
+        const ageS = row.ageStr.trim();
+        if (!name && !ageS) continue;
+        if (!name || !ageS) {
+          setError(
+            `Child ${i + 1}: enter both name and age, or clear both and remove the row if unused.`
+          );
+          return;
+        }
+        const ageNum = Number(ageS);
+        if (!Number.isInteger(ageNum)) {
+          setError(`Child ${i + 1}: age must be a whole number.`);
+          return;
+        }
+        if (ageNum < 12 || ageNum > 20) {
+          setError(
+            `Child ${i + 1}: dependent age must be between 12 and 20.`
+          );
+          return;
+        }
+        childrenOut.push({ fullName: name, age: ageNum });
+      }
+    }
+
     setLoading(true);
     try {
       await onSubmit({
         values: {
           type,
           primary,
-          spouse,
-          children: type === "family" ? children : [],
+          spouse: spouseOut ?? { fullName: "", age: 18 },
+          children: type === "family" ? childrenOut : [],
           payment,
           agreementInitials,
           printedName: printedName.trim(),
@@ -204,17 +275,17 @@ export function MembershipForm({
   }
 
   function addChild() {
-    setChildren((c) => [...c, { fullName: "", age: 12 }]);
+    setChildrenDraft((c) => [...c, { fullName: "", ageStr: "" }]);
   }
 
-  function updateChild(i: number, patch: Partial<ChildInfo>) {
-    setChildren((rows) =>
+  function updateChild(i: number, patch: Partial<ChildDraft>) {
+    setChildrenDraft((rows) =>
       rows.map((row, j) => (j === i ? { ...row, ...patch } : row))
     );
   }
 
   function removeChild(i: number) {
-    setChildren((rows) => rows.filter((_, j) => j !== i));
+    setChildrenDraft((rows) => rows.filter((_, j) => j !== i));
   }
 
   return (
@@ -313,21 +384,73 @@ export function MembershipForm({
             }
           />
         </div>
-        <label className="mt-4 block">
-          <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-ink-muted">
-            Street address
-          </span>
-          <textarea
+        <div className="mt-6 space-y-4">
+          <Field
+            label="Address line 1"
             required
-            rows={3}
-            value={primary.address}
+            value={primary.addressLine1}
             onChange={(e) =>
-              setPrimary((p) => ({ ...p, address: e.target.value }))
+              setPrimary((p) => ({ ...p, addressLine1: e.target.value }))
             }
-            className="w-full rounded-lg border border-surface-border bg-white px-3 py-2 text-sm text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
-            placeholder="Street, city, state, ZIP"
+            placeholder="e.g. 1234 Fake St"
+            autoComplete="address-line1"
           />
-        </label>
+          <Field
+            label="Address line 2 (optional)"
+            value={primary.addressLine2}
+            onChange={(e) =>
+              setPrimary((p) => ({ ...p, addressLine2: e.target.value }))
+            }
+            placeholder="e.g. APT 1"
+            autoComplete="address-line2"
+          />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field
+              label="City"
+              required
+              value={primary.city}
+              onChange={(e) =>
+                setPrimary((p) => ({ ...p, city: e.target.value }))
+              }
+              placeholder="e.g. Middleton"
+              autoComplete="address-level2"
+            />
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-ink-muted">
+                State
+              </span>
+              <select
+                required
+                value={primary.state}
+                onChange={(e) =>
+                  setPrimary((p) => ({
+                    ...p,
+                    state: e.target.value,
+                  }))
+                }
+                className="w-full rounded-lg border border-surface-border bg-white px-3 py-2 text-sm text-ink outline-none ring-accent/30 focus:border-accent focus:ring-2"
+              >
+                <option value="">Select state</option>
+                {US_STATES.map((s) => (
+                  <option key={s.code} value={s.code}>
+                    {s.code} — {s.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <Field
+            label="ZIP code"
+            required
+            inputMode="numeric"
+            autoComplete="postal-code"
+            value={primary.zip}
+            onChange={(e) =>
+              setPrimary((p) => ({ ...p, zip: e.target.value }))
+            }
+            placeholder="e.g. 12345"
+          />
+        </div>
       </section>
 
       {showSpouse ? (
@@ -338,9 +461,9 @@ export function MembershipForm({
             <Field
               label="Full name"
               required
-              value={spouse.fullName}
+              value={spouseDraft.fullName}
               onChange={(e) =>
-                setSpouse((s) => ({ ...s, fullName: e.target.value }))
+                setSpouseDraft((s) => ({ ...s, fullName: e.target.value }))
               }
             />
             <label className="block">
@@ -348,21 +471,19 @@ export function MembershipForm({
                 Age
               </span>
               <input
-                type="number"
-                min={18}
-                max={120}
+                type="text"
+                inputMode="numeric"
+                autoComplete="off"
                 required
-                value={spouse.age}
+                value={spouseDraft.ageStr}
                 onChange={(e) =>
-                  setSpouse((s) => ({
+                  setSpouseDraft((s) => ({
                     ...s,
-                    age: Math.min(
-                      120,
-                      Math.max(18, Number(e.target.value) || 18)
-                    ),
+                    ageStr: e.target.value,
                   }))
                 }
                 className="w-full rounded-lg border border-surface-border bg-white px-3 py-2 text-sm text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
+                placeholder="18"
               />
             </label>
           </div>
@@ -388,14 +509,14 @@ export function MembershipForm({
               Add child
             </button>
           </div>
-          {children.length === 0 ? (
+          {childrenDraft.length === 0 ? (
             <p className="mt-4 text-sm text-ink-muted">
               No children added. You can still submit if only adults are on the
               plan.
             </p>
           ) : (
             <ul className="mt-4 space-y-4">
-              {children.map((row, i) => (
+              {childrenDraft.map((row, i) => (
                 <li
                   key={i}
                   className="rounded-xl border border-surface-border bg-white p-4"
@@ -426,19 +547,15 @@ export function MembershipForm({
                         Age
                       </span>
                       <input
-                        type="number"
-                        min={12}
-                        max={20}
+                        type="text"
+                        inputMode="numeric"
+                        autoComplete="off"
                         required
-                        value={row.age}
+                        value={row.ageStr}
                         onChange={(e) =>
-                          updateChild(i, {
-                            age: Math.min(
-                              20,
-                              Math.max(12, Number(e.target.value) || 12)
-                            ),
-                          })
+                          updateChild(i, { ageStr: e.target.value })
                         }
+                        placeholder="12–20"
                         className="w-full rounded-lg border border-surface-border bg-white px-3 py-2 text-sm text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
                       />
                     </label>
@@ -480,6 +597,11 @@ export function MembershipForm({
               value={payment.cardholderName}
               onChange={(e) =>
                 setPayment((p) => ({ ...p, cardholderName: e.target.value }))
+              }
+              placeholder={
+                primary.fullName.trim()
+                  ? primary.fullName.trim()
+                  : "Cardholder name as shown on card"
               }
             />
           </div>

@@ -25,22 +25,33 @@ export async function POST(request: Request) {
   }
 
   const { data } = parsed;
-  const record = await addMembership({
-    status: "active",
-    type: data.type,
-    primary: data.primary,
-    spouse: data.type === "family" ? data.spouse : null,
-    children: data.type === "family" ? data.children : [],
-    payment: data.payment,
-    agreementInitials: data.agreementInitials,
-    signatureDataUrl: data.signatureDataUrl,
-    printedName: data.printedName,
-    agreementDate: data.agreementDate,
-    notes: data.notes ?? "",
-  });
+  try {
+    const record = await addMembership({
+      status: "active",
+      type: data.type,
+      primary: data.primary,
+      spouse: data.type === "family" ? data.spouse : null,
+      children: data.type === "family" ? data.children : [],
+      payment: data.payment,
+      agreementInitials: data.agreementInitials,
+      signatureDataUrl: data.signatureDataUrl,
+      printedName: data.printedName,
+      agreementDate: data.agreementDate,
+      notes: data.notes ?? "",
+    });
 
-  return NextResponse.json({
-    membershipId: record.membershipId,
-    createdAt: record.createdAt,
-  });
+    return NextResponse.json({
+      membershipId: record.membershipId,
+      createdAt: record.createdAt,
+    });
+  } catch (err) {
+    console.error("addMembership failed:", err);
+    return NextResponse.json(
+      {
+        error:
+          "Could not save your application. Try again in a moment, or ask staff for help.",
+      },
+      { status: 503 }
+    );
+  }
 }

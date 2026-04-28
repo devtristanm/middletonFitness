@@ -1,40 +1,50 @@
-import { promises as fs } from "fs";
-import path from "path";
 import { migrateMembershipRecord } from "./migrateMembershipRecord";
+import { createMembershipSupabaseClient } from "./supabase/server";
 import type { MembershipRecord, MembershipsFile } from "./types";
 
-const DATA_DIR = path.join(process.cwd(), "data");
-const FILE = path.join(DATA_DIR, "memberships.json");
+const STORE_ROW_ID = 1;
 
 const defaultFile = (): MembershipsFile => ({
   nextId: 1280,
   memberships: [],
 });
 
-async function ensureDataDir() {
-  await fs.mkdir(DATA_DIR, { recursive: true });
+function normalizeStore(raw: unknown): MembershipsFile {
+  if (!raw || typeof raw !== "object") return defaultFile();
+  const o = raw as MembershipsFile;
+  if (typeof o.nextId !== "number" || !Array.isArray(o.memberships)) {
+    return defaultFile();
+  }
+  return o;
 }
 
 export async function readStore(): Promise<MembershipsFile> {
-  await ensureDataDir();
-  try {
-    const raw = await fs.readFile(FILE, "utf-8");
-    const parsed = JSON.parse(raw) as MembershipsFile;
-    if (
-      typeof parsed.nextId !== "number" ||
-      !Array.isArray(parsed.memberships)
-    ) {
-      return defaultFile();
-    }
-    return parsed;
-  } catch {
+  const supabase = createMembershipSupabaseClient();
+  const { data: row, error } = await supabase
+    .from("membership_store")
+    .select("data")
+    .eq("id", STORE_ROW_ID)
+    .maybeSingle();
+
+  if (error) {
+    console.error("membership_store read:", error.message);
     return defaultFile();
   }
+  if (!row?.data) return defaultFile();
+  return normalizeStore(row.data);
 }
 
 async function writeStore(data: MembershipsFile) {
-  await ensureDataDir();
-  await fs.writeFile(FILE, JSON.stringify(data, null, 2), "utf-8");
+  const supabase = createMembershipSupabaseClient();
+  const { error } = await supabase.from("membership_store").upsert(
+    {
+      id: STORE_ROW_ID,
+      data,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "id" }
+  );
+  if (error) throw error;
 }
 
 export async function listMemberships(): Promise<MembershipRecord[]> {

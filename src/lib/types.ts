@@ -2,11 +2,16 @@ export type MembershipType = "individual" | "family";
 
 export type MembershipStatus = "active" | "cancelled";
 
-/** Account holder / primary member — full contact and billing address. */
+/** Account holder / primary member — full contact and mailing address. */
 export type PersonInfo = {
   fullName: string;
   dateOfBirth: string;
-  address: string;
+  addressLine1: string;
+  addressLine2: string;
+  city: string;
+  /** USPS two-letter state code */
+  state: string;
+  zip: string;
   email: string;
   phone: string;
 };

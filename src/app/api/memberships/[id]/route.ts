@@ -89,22 +89,30 @@ export async function PATCH(request: Request, context: Ctx) {
     data.signatureDataUrl ?? existing.signatureDataUrl;
 
   const now = new Date().toISOString();
-  const updated = await updateMembership(membershipId, {
-    type: data.type,
-    primary: data.primary,
-    spouse: data.type === "family" ? data.spouse : null,
-    children: data.type === "family" ? data.children : [],
-    payment: data.payment,
-    agreementInitials: data.agreementInitials,
-    signatureDataUrl,
-    printedName: data.printedName,
-    agreementDate: data.agreementDate,
-    notes: data.notes ?? existing.notes,
-    status: existing.status,
-    cancelledAt: existing.cancelledAt,
-    ownerNotes: existing.ownerNotes,
-    lastSheetEditAt: now,
-  });
+  try {
+    const updated = await updateMembership(membershipId, {
+      type: data.type,
+      primary: data.primary,
+      spouse: data.type === "family" ? data.spouse : null,
+      children: data.type === "family" ? data.children : [],
+      payment: data.payment,
+      agreementInitials: data.agreementInitials,
+      signatureDataUrl,
+      printedName: data.printedName,
+      agreementDate: data.agreementDate,
+      notes: data.notes ?? existing.notes,
+      status: existing.status,
+      cancelledAt: existing.cancelledAt,
+      ownerNotes: existing.ownerNotes,
+      lastSheetEditAt: now,
+    });
 
-  return NextResponse.json({ membership: updated });
+    return NextResponse.json({ membership: updated });
+  } catch (err) {
+    console.error("updateMembership failed:", err);
+    return NextResponse.json(
+      { error: "Could not save changes. Try again or contact support." },
+      { status: 503 }
+    );
+  }
 }

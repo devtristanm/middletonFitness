@@ -16,7 +16,11 @@ import { brandPageShell } from "@/lib/siteChrome";
 const emptyPrimary: PersonInfo = {
   fullName: "",
   dateOfBirth: "",
-  address: "",
+  addressLine1: "",
+  addressLine2: "",
+  city: "",
+  state: "",
+  zip: "",
   email: "",
   phone: "",
 };

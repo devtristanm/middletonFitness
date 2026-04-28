@@ -6,6 +6,7 @@ import type {
   PersonInfo,
   SpouseInfo,
 } from "./types";
+import { isValidUsStateCode } from "./usStates";
 
 export type CreateMembershipBody = {
   type: MembershipType;
@@ -39,13 +40,22 @@ function isNonEmptyString(v: unknown): v is string {
   return typeof v === "string" && v.trim().length > 0;
 }
 
+function isZip(v: unknown): boolean {
+  return typeof v === "string" && /^\d{5}(-\d{4})?$/.test(v.trim());
+}
+
 function isPersonInfo(v: unknown): v is PersonInfo {
   if (!v || typeof v !== "object") return false;
   const p = v as Record<string, unknown>;
+  const state = typeof p.state === "string" ? p.state.trim().toUpperCase() : "";
   return (
     isNonEmptyString(p.fullName) &&
     isNonEmptyString(p.dateOfBirth) &&
-    isNonEmptyString(p.address) &&
+    isNonEmptyString(p.addressLine1) &&
+    isNonEmptyString(p.city) &&
+    state.length === 2 &&
+    isValidUsStateCode(state) &&
+    isZip(p.zip) &&
     isNonEmptyString(p.email) &&
     isNonEmptyString(p.phone)
   );
@@ -111,7 +121,7 @@ export function parseCreateMembershipBody(
     return {
       ok: false,
       error:
-        "Primary member: name, birthdate, address, email, and phone are required",
+        "Primary member: name, birthdate, full street address (line 1, city, state, ZIP), email, and phone are required",
     };
   }
 
@@ -204,7 +214,13 @@ export function parseCreateMembershipBody(
       primary: {
         fullName: (b.primary as PersonInfo).fullName.trim(),
         dateOfBirth: (b.primary as PersonInfo).dateOfBirth.trim(),
-        address: (b.primary as PersonInfo).address.trim(),
+        addressLine1: (b.primary as PersonInfo).addressLine1.trim(),
+        addressLine2: String(
+          (b.primary as PersonInfo).addressLine2 ?? ""
+        ).trim(),
+        city: (b.primary as PersonInfo).city.trim(),
+        state: String((b.primary as PersonInfo).state).trim().toUpperCase(),
+        zip: String((b.primary as PersonInfo).zip).trim(),
         email: (b.primary as PersonInfo).email.trim(),
         phone: (b.primary as PersonInfo).phone.trim(),
       },

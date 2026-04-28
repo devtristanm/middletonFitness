@@ -27,20 +27,36 @@ function ageFromDateOfBirth(dob: string): number | null {
 }
 
 function migratePrimary(p: unknown): PersonInfo {
-  if (!p || typeof p !== "object") {
-    return {
-      fullName: "",
-      dateOfBirth: "",
-      address: "",
-      email: "",
-      phone: "",
-    };
-  }
+  const empty: PersonInfo = {
+    fullName: "",
+    dateOfBirth: "",
+    addressLine1: "",
+    addressLine2: "",
+    city: "",
+    state: "",
+    zip: "",
+    email: "",
+    phone: "",
+  };
+  if (!p || typeof p !== "object") return empty;
   const o = p as Record<string, unknown>;
+  const legacy = String(o.address ?? "").trim();
+  const lines = legacy.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+  const line1Direct = String(o.addressLine1 ?? "").trim();
+  const line2Direct = String(o.addressLine2 ?? "").trim();
+  const addressLine1 =
+    line1Direct || lines[0] || legacy || "";
+  const extraLegacy =
+    !line1Direct && lines.length > 1 ? lines.slice(1).join(", ") : "";
+  const addressLine2 = line2Direct || extraLegacy;
   return {
     fullName: String(o.fullName ?? "").trim(),
     dateOfBirth: String(o.dateOfBirth ?? "").trim(),
-    address: String(o.address ?? "").trim(),
+    addressLine1,
+    addressLine2,
+    city: String(o.city ?? "").trim(),
+    state: String(o.state ?? "").trim().toUpperCase().slice(0, 2),
+    zip: String(o.zip ?? "").trim(),
     email: String(o.email ?? "").trim(),
     phone: String(o.phone ?? "").trim(),
   };
