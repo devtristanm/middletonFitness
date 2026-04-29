@@ -191,6 +191,13 @@ export function parseCreateMembershipBody(
     return { ok: false, error: "Signature is required" };
   }
   const sig = b.signatureDataUrl as string;
+  if (sig.length > 1_500_000) {
+    return {
+      ok: false,
+      error:
+        "Signature data is too large. Clear the signature, draw it again, and resubmit. If the problem continues, use a different browser or turn off the device display zoom for this page.",
+    };
+  }
   if (!sig.startsWith("data:image/")) {
     return { ok: false, error: "Invalid signature format" };
   }

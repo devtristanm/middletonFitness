@@ -22,6 +22,35 @@ type Props = {
   hint?: string;
 };
 
+const SIG_MAX_OUTPUT_SIDE = 900;
+const SIG_JPEG_QUALITY = 0.88;
+
+/**
+ * High-DPI canvases (devicePixelRatio) can produce multi‑MB PNG data URLs.
+ * That exceeds typical PostgREST body limits and breaks signup. Downscale + JPEG
+ * keeps a clear signature with a much smaller payload.
+ */
+function toCompressedSignatureDataUrl(source: HTMLCanvasElement): string {
+  const w = source.width;
+  const h = source.height;
+  if (w < 1 || h < 1) return source.toDataURL("image/jpeg", SIG_JPEG_QUALITY);
+  const maxSide = Math.max(w, h);
+  const scale = Math.min(1, SIG_MAX_OUTPUT_SIDE / maxSide);
+  const outW = Math.max(1, Math.round(w * scale));
+  const outH = Math.max(1, Math.round(h * scale));
+  const c = document.createElement("canvas");
+  c.width = outW;
+  c.height = outH;
+  const x = c.getContext("2d");
+  if (!x) return source.toDataURL("image/jpeg", SIG_JPEG_QUALITY);
+  x.fillStyle = "#ffffff";
+  x.fillRect(0, 0, outW, outH);
+  x.imageSmoothingEnabled = true;
+  x.imageSmoothingQuality = "high";
+  x.drawImage(source, 0, 0, outW, outH);
+  return c.toDataURL("image/jpeg", SIG_JPEG_QUALITY);
+}
+
 function getPoint(
   e: React.MouseEvent | React.TouchEvent,
   canvas: HTMLCanvasElement
@@ -106,7 +135,7 @@ export const SignaturePad = forwardRef<SignaturePadHandle, Props>(
       toDataURL: () => {
         const canvas = canvasRef.current;
         if (!canvas || !hasInk.current) return null;
-        return canvas.toDataURL("image/png");
+        return toCompressedSignatureDataUrl(canvas);
       },
     }));
 

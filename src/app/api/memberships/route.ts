@@ -45,9 +45,30 @@ export async function POST(request: Request) {
       createdAt: record.createdAt,
     });
   } catch (err) {
+    const postgrest = err as {
+      code?: string;
+      message?: string;
+      details?: string;
+    };
     const message = err instanceof Error ? err.message : String(err);
-    console.error("addMembership failed:", message, err);
+    const combined = [message, postgrest.details, String(postgrest?.code)]
+      .filter(Boolean)
+      .join(" ");
+    console.error("addMembership failed:", combined, err);
     const isConfig = message.includes("Missing Supabase env");
+    if (
+      /413|content[\s-]?type|entity too large|payload too|too large|maximum.*size|PGRST122|exceeds|request.*(too )?large|body.*(too )?large/i.test(
+        combined
+      )
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "The saved signature or form is too large for the server. Clear the signature, draw a simpler one, and try again.",
+        },
+        { status: 413 }
+      );
+    }
     return NextResponse.json(
       {
         error: isConfig
