@@ -1,5 +1,8 @@
 import { migrateMembershipRecord } from "./migrateMembershipRecord";
-import { createMembershipSupabaseClient } from "./supabase/server";
+import {
+  createMembershipSupabaseClient,
+  hasServiceRoleKey,
+} from "./supabase/server";
 import type { MembershipRecord, MembershipsFile } from "./types";
 
 const STORE_ROW_ID = 1;
@@ -31,7 +34,15 @@ export async function readStore(): Promise<MembershipsFile> {
     throw error;
   }
   if (!row?.data) return defaultFile();
-  return normalizeStore(row.data);
+  const raw = row.data as unknown;
+  if (typeof raw === "string") {
+    try {
+      return normalizeStore(JSON.parse(raw) as unknown);
+    } catch {
+      return defaultFile();
+    }
+  }
+  return normalizeStore(raw);
 }
 
 async function writeStore(data: MembershipsFile) {
@@ -65,16 +76,18 @@ export async function getMembership(
   return found ? migrateMembershipRecord(found as MembershipRecord) : null;
 }
 
-export async function addMembership(
-  record: Omit<
-    MembershipRecord,
-    | "membershipId"
-    | "createdAt"
-    | "updatedAt"
-    | "cancelledAt"
-    | "lastSheetEditAt"
-    | "ownerNotes"
-  >
+type NewMembershipInput = Omit<
+  MembershipRecord,
+  | "membershipId"
+  | "createdAt"
+  | "updatedAt"
+  | "cancelledAt"
+  | "lastSheetEditAt"
+  | "ownerNotes"
+>;
+
+async function addMembershipLegacy(
+  record: NewMembershipInput
 ): Promise<MembershipRecord> {
   const store = await readStore();
   const membershipId = store.nextId;
@@ -92,6 +105,38 @@ export async function addMembership(
   store.nextId = membershipId + 1;
   await writeStore(store);
   return full;
+}
+
+export async function addMembership(
+  record: NewMembershipInput
+): Promise<MembershipRecord> {
+  if (hasServiceRoleKey()) {
+    const supabase = createMembershipSupabaseClient();
+    const now = new Date().toISOString();
+    const { data, error } = await supabase.rpc("membership_store_append", {
+      p_input: record,
+      p_now: now,
+    });
+    if (!error && data) {
+      return migrateMembershipRecord(data as MembershipRecord);
+    }
+    const em = [error?.message, error?.code, (error as { details?: string })?.details]
+      .filter(Boolean)
+      .join(" ");
+    if (
+      /not exist|membership_store_append|Could not find|PGRST202|42883|function public\.membership_store_append/i.test(
+        em
+      )
+    ) {
+      console.warn(
+        "membership_store_append RPC unavailable, using non-atomic save:",
+        em
+      );
+    } else if (error) {
+      throw error;
+    }
+  }
+  return addMembershipLegacy(record);
 }
 
 export async function updateMembership(

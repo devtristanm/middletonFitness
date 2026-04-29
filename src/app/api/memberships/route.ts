@@ -47,9 +47,7 @@ export async function POST(request: Request) {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("addMembership failed:", message, err);
-    const isConfig =
-      message.includes("Missing Supabase env") ||
-      message.includes("NEXT_PUBLIC_SUPABASE");
+    const isConfig = message.includes("Missing Supabase env");
     return NextResponse.json(
       {
         error: isConfig
