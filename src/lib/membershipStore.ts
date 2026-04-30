@@ -1,79 +1,72 @@
-import { migrateMembershipRecord } from "./migrateMembershipRecord";
+import type { WithId, Document } from "mongodb";
 import {
-  createMembershipSupabaseClient,
-  hasServiceRoleKey,
-} from "./supabase/server";
-import type { MembershipRecord, MembershipsFile } from "./types";
+  getDb,
+  ensureMembershipIndexes,
+  MONGO_COLLECTION_COUNTERS,
+  MONGO_COLLECTION_MEMBERSHIPS,
+  MONGO_COUNTER_MEMBERSHIP_ID,
+} from "./mongo/db";
+import { migrateMembershipRecord } from "./migrateMembershipRecord";
+import type { MembershipRecord } from "./types";
 
-const STORE_ROW_ID = 1;
-
-const defaultFile = (): MembershipsFile => ({
-  nextId: 1280,
-  memberships: [],
-});
-
-function normalizeStore(raw: unknown): MembershipsFile {
-  if (!raw || typeof raw !== "object") return defaultFile();
-  const o = raw as MembershipsFile;
-  if (typeof o.nextId !== "number" || !Array.isArray(o.memberships)) {
-    return defaultFile();
-  }
-  return o;
+function logMongo(context: string, err: unknown) {
+  const e = err as { code?: number; message?: string };
+  console.error(context, e.code ?? "", e.message ?? err);
 }
 
-export async function readStore(): Promise<MembershipsFile> {
-  const supabase = createMembershipSupabaseClient();
-  const { data: row, error } = await supabase
-    .from("membership_store")
-    .select("data")
-    .eq("id", STORE_ROW_ID)
-    .maybeSingle();
-
-  if (error) {
-    console.error("membership_store read:", error.code, error.message, error.details);
-    throw error;
-  }
-  if (!row?.data) return defaultFile();
-  const raw = row.data as unknown;
-  if (typeof raw === "string") {
-    try {
-      return normalizeStore(JSON.parse(raw) as unknown);
-    } catch {
-      return defaultFile();
-    }
-  }
-  return normalizeStore(raw);
+function stripId<T extends Document>(doc: WithId<T> | null): (Omit<T, "_id"> & { _id?: never }) | null {
+  if (!doc) return null;
+  const { _id, ...rest } = doc;
+  void _id;
+  return rest as Omit<T, "_id"> & { _id?: never };
 }
 
-async function writeStore(data: MembershipsFile) {
-  const supabase = createMembershipSupabaseClient();
-  const { error } = await supabase.from("membership_store").upsert(
-    {
-      id: STORE_ROW_ID,
-      data,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "id" }
+async function nextMembershipId(): Promise<number> {
+  const db = await getDb();
+  const counters = db.collection<{ _id: string; seq: number }>(
+    MONGO_COLLECTION_COUNTERS
   );
-  if (error) throw error;
+  await counters.updateOne(
+    { _id: MONGO_COUNTER_MEMBERSHIP_ID },
+    { $setOnInsert: { seq: 1279 } },
+    { upsert: true }
+  );
+  await counters.updateOne(
+    { _id: MONGO_COUNTER_MEMBERSHIP_ID },
+    { $inc: { seq: 1 } }
+  );
+  const doc = await counters.findOne({ _id: MONGO_COUNTER_MEMBERSHIP_ID });
+  const seq = doc?.seq;
+  if (typeof seq !== "number") {
+    throw new Error("Could not allocate membership id");
+  }
+  return seq;
 }
 
 export async function listMemberships(): Promise<MembershipRecord[]> {
-  const store = await readStore();
-  return [...store.memberships]
-    .map((m) => migrateMembershipRecord(m as MembershipRecord))
-    .sort(
-      (a, b) =>
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
+  const db = await getDb();
+  await ensureMembershipIndexes(db);
+  const col = db.collection<MembershipRecord & Document>(
+    MONGO_COLLECTION_MEMBERSHIPS
+  );
+  const cursor = col.find({}).sort({ createdAt: -1 });
+  const docs = await cursor.toArray();
+  return docs.map((d) =>
+    migrateMembershipRecord(stripId(d) as MembershipRecord)
+  );
 }
 
 export async function getMembership(
   membershipId: number
 ): Promise<MembershipRecord | null> {
-  const store = await readStore();
-  const found = store.memberships.find((m) => m.membershipId === membershipId);
-  return found ? migrateMembershipRecord(found as MembershipRecord) : null;
+  const db = await getDb();
+  await ensureMembershipIndexes(db);
+  const col = db.collection<MembershipRecord & Document>(
+    MONGO_COLLECTION_MEMBERSHIPS
+  );
+  const doc = await col.findOne({ membershipId });
+  if (!doc) return null;
+  return migrateMembershipRecord(stripId(doc) as MembershipRecord);
 }
 
 type NewMembershipInput = Omit<
@@ -86,11 +79,12 @@ type NewMembershipInput = Omit<
   | "ownerNotes"
 >;
 
-async function addMembershipLegacy(
+export async function addMembership(
   record: NewMembershipInput
 ): Promise<MembershipRecord> {
-  const store = await readStore();
-  const membershipId = store.nextId;
+  const db = await getDb();
+  await ensureMembershipIndexes(db);
+  const membershipId = await nextMembershipId();
   const now = new Date().toISOString();
   const full: MembershipRecord = {
     ...record,
@@ -101,61 +95,50 @@ async function addMembershipLegacy(
     lastSheetEditAt: null,
     ownerNotes: "",
   };
-  store.memberships.push(full);
-  store.nextId = membershipId + 1;
-  await writeStore(store);
-  return full;
-}
 
-export async function addMembership(
-  record: NewMembershipInput
-): Promise<MembershipRecord> {
-  if (hasServiceRoleKey()) {
-    const supabase = createMembershipSupabaseClient();
-    const now = new Date().toISOString();
-    const { data, error } = await supabase.rpc("membership_store_append", {
-      p_input: record,
-      p_now: now,
-    });
-    if (!error && data) {
-      return migrateMembershipRecord(data as MembershipRecord);
-    }
-    const em = [error?.message, error?.code, (error as { details?: string })?.details]
-      .filter(Boolean)
-      .join(" ");
-    if (
-      /not exist|membership_store_append|Could not find|PGRST202|42883|function public\.membership_store_append/i.test(
-        em
-      )
-    ) {
-      console.warn(
-        "membership_store_append RPC unavailable, using non-atomic save:",
-        em
-      );
-    } else if (error) {
-      throw error;
-    }
+  const col = db.collection<MembershipRecord & Document>(
+    MONGO_COLLECTION_MEMBERSHIPS
+  );
+  const plain = JSON.parse(JSON.stringify(full)) as MembershipRecord;
+  try {
+    await col.insertOne(plain as MembershipRecord & Document);
+  } catch (err) {
+    logMongo("memberships insert:", err);
+    throw err;
   }
-  return addMembershipLegacy(record);
+  return migrateMembershipRecord(plain);
 }
 
 export async function updateMembership(
   membershipId: number,
   patch: Partial<Omit<MembershipRecord, "membershipId" | "createdAt">>
 ): Promise<MembershipRecord | null> {
-  const store = await readStore();
-  const idx = store.memberships.findIndex((m) => m.membershipId === membershipId);
-  if (idx === -1) return null;
-  const prev = store.memberships[idx];
-  const base = migrateMembershipRecord(prev as MembershipRecord);
+  const db = await getDb();
+  await ensureMembershipIndexes(db);
+  const col = db.collection<MembershipRecord & Document>(
+    MONGO_COLLECTION_MEMBERSHIPS
+  );
+  const existingDoc = await col.findOne({ membershipId });
+  if (!existingDoc) return null;
+
+  const existing = migrateMembershipRecord(
+    stripId(existingDoc) as MembershipRecord
+  );
   const updated: MembershipRecord = {
-    ...base,
+    ...existing,
     ...patch,
-    membershipId: base.membershipId,
-    createdAt: base.createdAt,
+    membershipId: existing.membershipId,
+    createdAt: existing.createdAt,
     updatedAt: new Date().toISOString(),
   };
-  store.memberships[idx] = updated;
-  await writeStore(store);
-  return updated;
+
+  const plain = JSON.parse(JSON.stringify(updated)) as MembershipRecord;
+  const rep = await col.replaceOne(
+    { membershipId },
+    plain as MembershipRecord & Document
+  );
+  if (rep.matchedCount === 0) return null;
+  const next = await col.findOne({ membershipId });
+  if (!next) return null;
+  return migrateMembershipRecord(stripId(next) as MembershipRecord);
 }

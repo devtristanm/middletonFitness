@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 import { getMembership, updateMembership } from "@/lib/membershipStore";
+import {
+  membershipMutationErrorResponse,
+  membershipReadErrorResponse,
+} from "@/lib/membershipRouteResponse";
 import type { MembershipRecord } from "@/lib/types";
 import { parseUpdateMembershipBody } from "@/lib/validateMembership";
 import { isWorkerAuthenticated } from "@/lib/workerSession";
@@ -15,9 +19,13 @@ export async function GET(_request: Request, context: Ctx) {
   if (!Number.isInteger(membershipId)) {
     return NextResponse.json({ error: "Invalid id" }, { status: 400 });
   }
-  const m = await getMembership(membershipId);
-  if (!m) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  return NextResponse.json({ membership: m });
+  try {
+    const m = await getMembership(membershipId);
+    if (!m) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    return NextResponse.json({ membership: m });
+  } catch (err) {
+    return membershipReadErrorResponse(err);
+  }
 }
 
 export async function PATCH(request: Request, context: Ctx) {
@@ -47,9 +55,13 @@ export async function PATCH(request: Request, context: Ctx) {
 
   if (ownerNotesOnly) {
     const ownerNotes = String(body.ownerNotes).slice(0, 5000);
-    const updated = await updateMembership(membershipId, { ownerNotes });
-    if (!updated) return NextResponse.json({ error: "Not found" }, { status: 404 });
-    return NextResponse.json({ membership: updated });
+    try {
+      const updated = await updateMembership(membershipId, { ownerNotes });
+      if (!updated) return NextResponse.json({ error: "Not found" }, { status: 404 });
+      return NextResponse.json({ membership: updated });
+    } catch (err) {
+      return membershipMutationErrorResponse(err, "update");
+    }
   }
 
   const statusOnly =
@@ -57,22 +69,26 @@ export async function PATCH(request: Request, context: Ctx) {
     (body.status === "cancelled" || body.status === "active");
 
   if (statusOnly) {
-    const existing = await getMembership(membershipId);
-    if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
-    const now = new Date().toISOString();
-    const nextStatus = body.status as "active" | "cancelled";
-    const patch: Partial<Omit<MembershipRecord, "membershipId" | "createdAt">> = {
-      status: nextStatus,
-    };
-    if (nextStatus === "cancelled" && existing.status === "active") {
-      patch.cancelledAt = now;
+    try {
+      const existing = await getMembership(membershipId);
+      if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+      const now = new Date().toISOString();
+      const nextStatus = body.status as "active" | "cancelled";
+      const patch: Partial<Omit<MembershipRecord, "membershipId" | "createdAt">> = {
+        status: nextStatus,
+      };
+      if (nextStatus === "cancelled" && existing.status === "active") {
+        patch.cancelledAt = now;
+      }
+      if (nextStatus === "active") {
+        patch.cancelledAt = null;
+      }
+      const updated = await updateMembership(membershipId, patch);
+      if (!updated) return NextResponse.json({ error: "Not found" }, { status: 404 });
+      return NextResponse.json({ membership: updated });
+    } catch (err) {
+      return membershipMutationErrorResponse(err, "update");
     }
-    if (nextStatus === "active") {
-      patch.cancelledAt = null;
-    }
-    const updated = await updateMembership(membershipId, patch);
-    if (!updated) return NextResponse.json({ error: "Not found" }, { status: 404 });
-    return NextResponse.json({ membership: updated });
   }
 
   const parsed = parseUpdateMembershipBody(body);
@@ -82,14 +98,14 @@ export async function PATCH(request: Request, context: Ctx) {
   }
 
   const { data } = parsed;
-  const existing = await getMembership(membershipId);
-  if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
-
-  const signatureDataUrl =
-    data.signatureDataUrl ?? existing.signatureDataUrl;
-
-  const now = new Date().toISOString();
   try {
+    const existing = await getMembership(membershipId);
+    if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+    const signatureDataUrl =
+      data.signatureDataUrl ?? existing.signatureDataUrl;
+
+    const now = new Date().toISOString();
     const updated = await updateMembership(membershipId, {
       type: data.type,
       primary: data.primary,
@@ -109,10 +125,6 @@ export async function PATCH(request: Request, context: Ctx) {
 
     return NextResponse.json({ membership: updated });
   } catch (err) {
-    console.error("updateMembership failed:", err);
-    return NextResponse.json(
-      { error: "Could not save changes. Try again or contact support." },
-      { status: 503 }
-    );
+    return membershipMutationErrorResponse(err, "update");
   }
 }
